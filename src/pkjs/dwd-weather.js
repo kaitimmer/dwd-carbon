@@ -84,14 +84,17 @@ var CONDITION_TO_WMO_CODE = {
  * Deriving the value from the already-interpreted `icon` instead keeps the
  * cloud graph visually consistent with what the icon (and the human eye)
  * would call "mostly sunny" vs. "overcast", and doubles as a fallback when
- * a record's raw `cloud_cover` is missing/null. `wind` has no bearing on
- * cloud amount and is intentionally omitted (falls through to raw value).
+ * a record's raw `cloud_cover` is missing/null. `wind` is DWD's way of
+ * flagging strong wind as the dominant condition, not an indicator of heavy
+ * cloud, so it's damped like `partly-cloudy-*` rather than falling through
+ * to the raw (high-biased) value.
  */
 var ICON_TO_CLOUD_COVER_PCT = {
 	'clear-day': 5,
 	'clear-night': 5,
 	'partly-cloudy-day': 30,
 	'partly-cloudy-night': 30,
+	'wind': 20,
 	'cloudy': 90,
 	'fog': 80,
 	'rain': 85,
