@@ -40,7 +40,8 @@
 // Fills *weather with canned data for the selected scenario and forces
 // Celsius units (Berlin). Call once in init() after settings_init()
 // and after memset-zeroing s_weather, before creating the main window.
-void demo_data_load(WeatherData *weather, Settings *settings);
+void demo_data_load(WeatherData *weather, WeatherCloudLayers *layers,
+                    Settings *settings);
 
 // Returns the IANA-style timezone abbreviation for the active scenario
 // (e.g. "CDT" or "CST"). Used to seed time_layer when strftime %Z is

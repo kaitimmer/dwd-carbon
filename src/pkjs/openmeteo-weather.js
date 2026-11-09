@@ -50,7 +50,7 @@ function fetchOpenMeteoWeather(lat, lon, tempUnit, retryXhrFn, callback) {
 		'?latitude=' + lat +
 		'&longitude=' + lon +
 		'&current=temperature_2m,weather_code' +
-		'&hourly=precipitation_probability,temperature_2m,apparent_temperature,cloud_cover,weather_code' +
+		'&hourly=precipitation_probability,temperature_2m,apparent_temperature,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,weather_code' +
 		'&forecast_hours=' + FORECAST_HOURS +
 		'&daily=sunrise,sunset,temperature_2m_min,temperature_2m_max' +
 		'&forecast_days=1' +
@@ -87,6 +87,9 @@ function fetchOpenMeteoWeather(lat, lon, tempUnit, retryXhrFn, callback) {
 					fields.temp_hourly = hrly.temperature_2m || [];
 					fields.apparent_temp_hourly = hrly.apparent_temperature || [];
 					fields.cloud_cover = hrly.cloud_cover || [];
+					fields.cloud_cover_low = hrly.cloud_cover_low || [];
+					fields.cloud_cover_mid = hrly.cloud_cover_mid || [];
+					fields.cloud_cover_high = hrly.cloud_cover_high || [];
 					fields.hourly_weather_code = hrly.weather_code || [];
 				}
 

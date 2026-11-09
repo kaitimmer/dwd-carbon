@@ -15,5 +15,9 @@ typedef struct CloudLayer CloudLayer;
 CloudLayer *cloud_layer_create(GRect frame);
 void cloud_layer_destroy(CloudLayer *layer);
 Layer *cloud_layer_get_layer(CloudLayer *layer);
+// cover_low/mid/high may be all zero; the layer then draws the total only.
 void cloud_layer_set_data(CloudLayer *layer, const uint8_t cover[24],
+                          const uint8_t cover_low[24],
+                          const uint8_t cover_mid[24],
+                          const uint8_t cover_high[24],
                           const uint8_t hourly_code[24], uint8_t current_hour);

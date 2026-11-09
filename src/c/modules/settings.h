@@ -23,6 +23,7 @@ typedef struct {
 	bool show_timezone;
 	bool show_ampm;
 	uint8_t fetch_interval_min;
+	bool layered_clouds;
 } Settings;
 
 void settings_init(void);

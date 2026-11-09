@@ -170,7 +170,21 @@ static const DemoScenario s_scenarios[6] = {
      "Berlin", "CEST", WEATHER_HOURLY_COUNT, 25},
 };
 
-void demo_data_load(WeatherData *weather, Settings *settings) {
+// Split each hour's total cover into low/mid/high percentages (rotating
+// every 3 hours) so screenshots show varied rows.
+static void prv_demo_layers(WeatherCloudLayers *layers, const uint8_t *cover) {
+	static const uint8_t s_mix[4][3] = {
+	    {100, 30, 10}, {60, 100, 40}, {20, 60, 100}, {90, 20, 70}};
+	for (int i = 0; i < WEATHER_HOURLY_COUNT; i++) {
+		const uint8_t *m = s_mix[(i / 3) % 4];
+		layers->low[i] = (uint8_t)(cover[i] * m[0] / 100);
+		layers->mid[i] = (uint8_t)(cover[i] * m[1] / 100);
+		layers->high[i] = (uint8_t)(cover[i] * m[2] / 100);
+	}
+}
+
+void demo_data_load(WeatherData *weather, WeatherCloudLayers *layers,
+                    Settings *settings) {
 #if DEMO_SCENARIO < 1 || DEMO_SCENARIO > 6
 #error "DEMO_SCENARIO must be 1 through 6"
 #endif
@@ -187,6 +201,7 @@ void demo_data_load(WeatherData *weather, Settings *settings) {
 	       WEATHER_HOURLY_COUNT);
 	memcpy(weather->precip_prob, s->precip_prob, WEATHER_HOURLY_COUNT);
 	memcpy(weather->cloud_cover, s->cloud_cover, WEATHER_HOURLY_COUNT);
+	prv_demo_layers(layers, s->cloud_cover);
 	memcpy(weather->hourly_weather_code, s->hourly_code, WEATHER_HOURLY_COUNT);
 	strncpy(weather->city_name, s->city_name, WEATHER_CITY_MAX_LEN - 1);
 	weather->city_name[WEATHER_CITY_MAX_LEN - 1] = '\0';
@@ -197,6 +212,9 @@ void demo_data_load(WeatherData *weather, Settings *settings) {
 	// Berlin uses Celsius
 	if (settings) {
 		settings->temp_unit_celsius = true;
+#if defined(DEMO_LAYERED_CLOUDS)
+		settings->layered_clouds = true;
+#endif
 	}
 }
 

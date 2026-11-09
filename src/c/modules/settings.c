@@ -23,6 +23,7 @@ static const Settings s_defaults = {
     .show_timezone = true,
     .show_ampm = true,
     .fetch_interval_min = 30,
+    .layered_clouds = false,
 };
 
 void settings_init(void) {
@@ -82,6 +83,10 @@ void settings_apply_from_message(DictionaryIterator *iter) {
 	t = dict_find(iter, MESSAGE_KEY_SETTING_SHOW_AMPM);
 	if (t)
 		s_settings.show_ampm = (t->value->int8 != 0);
+
+	t = dict_find(iter, MESSAGE_KEY_SETTING_LAYERED_CLOUDS);
+	if (t)
+		s_settings.layered_clouds = (t->value->int8 != 0);
 
 	t = dict_find(iter, MESSAGE_KEY_SETTING_FETCH_INTERVAL);
 	if (t) {
