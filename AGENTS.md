@@ -26,7 +26,7 @@ rediscovering them.
 
 ```
 resources/        # Static assets (icon font, images)
-scripts/          # Utility scripts (e.g. gen-icons.js)
+scripts/          # Utility scripts (gen-icons.js) and `npm test` checks (test-dwd-clouds.js)
 src/
   c/
     generated/    # Generated C (e.g. icons.h from the icon font)
@@ -37,7 +37,7 @@ src/
     index.js              # Phone-side weather/location fetch + AppMessage forwarding
     config.js             # Clay settings page definition
     openmeteo-weather.js  # Open-Meteo weather source (default)
-    dwd-weather.js        # DWD weather source, via Bright Sky (opt-in)
+    dwd-weather.js        # DWD weather source, via Bright Sky (+ optional Open-Meteo ICON cloud layers)
 package.json      # Pebble metadata: messageKeys, resources, platforms
 ```
 
@@ -48,6 +48,7 @@ Real weather/timezone data isn't available in the emulator. Use demo builds:
 ```sh
 DEMO=1 pebble build                                   # inject demo data
 DEMO=1 pebble build && pebble screenshot --all-platforms
+DEMO=1 DEMO_LAYERED=1 pebble build                    # also show layered clouds
 ```
 
 See `src/c/modules/demo.c` for available scenarios. Run `pebble wipe` if the

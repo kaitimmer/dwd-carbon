@@ -16,11 +16,12 @@
  *  - Conditions are reported as `icon`/`condition` strings rather than WMO
  *    codes, so they are translated to a representative WMO code understood
  *    by weather_code_to_condition() in the C app (see iconToWmoCode()).
- *  - Raw DWD/MOSMIX total cloud cover runs noticeably higher than
- *    Open-Meteo's for the same subjectively "good weather" (e.g. Bright Sky
- *    still calls 60%+ cloud cover "partly cloudy"), so the cloud graph's
- *    percentage is also derived from `icon`/`condition` rather than sent
- *    as-is (see iconToCloudCoverPct()).
+ *  - Bright Sky has no low/mid/high cloud layers, and its raw total cloud
+ *    cover runs higher than Open-Meteo's. With the "layered clouds"
+ *    setting on, Open-Meteo's icon_seamless (DWD ICON) cloud fields are
+ *    fetched in parallel and aligned by timestamp (see alignCloudLayers()).
+ *    With it off, or if that call fails, an icon-based total estimate is
+ *    used with empty layers and no Open-Meteo call (see iconToCloudCoverPct()).
  *
  * @author    Kai Timmer
  * @copyright 2026 Kai Timmer
@@ -31,12 +32,15 @@
 var {
 	DWD_BASE_URL,
 	DWD_MAX_DIST_METERS,
+	WEATHER_BASE_URL,
 	FORECAST_HOURS,
 	WEATHER_RETRY_ATTEMPTS,
 	WEATHER_RETRY_BASE_DELAY_MS,
 } = require('./constants');
 
 var HOUR_MS = 60 * 60 * 1000;
+// Single attempt: this call is optional; caps the DWD delay at one timeout.
+var CLOUD_RETRY_ATTEMPTS = 1;
 
 /**
  * Bright Sky `icon` values mapped to a representative WMO weather code
@@ -72,22 +76,11 @@ var CONDITION_TO_WMO_CODE = {
 };
 
 /**
- * Bright Sky `icon` values mapped to a representative cloud-cover percentage
- * for the watch's cloud graph (src/c/ui/cloud_layer.c), rather than passing
- * Bright Sky's raw `cloud_cover` (DWD/MOSMIX total cloud amount) straight
- * through.
- *
- * DWD's raw total cloud cover runs noticeably higher than Open-Meteo's for
- * the same subjectively "good weather" — e.g. Bright Sky still reports
- * `partly-cloudy-day` at 60%+ cloud cover, well past the watch's "large
- * cloud" render threshold (70%), which was tuned against Open-Meteo's scale.
- * Deriving the value from the already-interpreted `icon` instead keeps the
- * cloud graph visually consistent with what the icon (and the human eye)
- * would call "mostly sunny" vs. "overcast", and doubles as a fallback when
- * a record's raw `cloud_cover` is missing/null. `wind` is DWD's way of
- * flagging strong wind as the dominant condition, not an indicator of heavy
- * cloud, so it's damped like `partly-cloudy-*` rather than falling through
- * to the raw (high-biased) value.
+ * Used when layered clouds are off or the Open-Meteo call failed: Bright Sky `icon` values
+ * mapped to a representative total cloud-cover percentage. Bright Sky's raw
+ * `cloud_cover` runs high (60%+ for `partly-cloudy-day`), past the watch's
+ * render thresholds, so the interpreted `icon` is used instead. `wind` is
+ * damped like `partly-cloudy-*`: it flags strong wind, not heavy cloud.
  */
 var ICON_TO_CLOUD_COVER_PCT = {
 	'clear-day': 5,
@@ -163,11 +156,9 @@ function iconToWmoCode(icon, condition, cloudCoverPct) {
 }
 
 /**
- * Derive the cloud-cover percentage sent to the watch's cloud graph from a
- * Bright Sky record's `icon`/`condition`, falling back to the raw
- * `cloud_cover` value only when neither is available. See
- * ICON_TO_CLOUD_COVER_PCT for why the raw DWD/MOSMIX percentage isn't used
- * directly.
+ * Fallback total cloud-cover percentage from a Bright Sky record's
+ * `icon`/`condition`, using the raw `cloud_cover` only when neither is
+ * available. Used when Open-Meteo cloud data is off or unavailable.
  *
  * @param   {?string} icon           Bright Sky `icon` value.
  * @param   {?string} condition      Bright Sky `condition` value.
@@ -182,6 +173,78 @@ function iconToCloudCoverPct(icon, condition, rawCloudCoverPct) {
 		return CONDITION_TO_CLOUD_COVER_PCT[condition];
 	}
 	return typeof rawCloudCoverPct === 'number' ? rawCloudCoverPct : 0;
+}
+
+/**
+ * @param   {number} lat
+ * @param   {number} lon
+ * @returns {string} Open-Meteo request URL for DWD ICON cloud fields only.
+ */
+function buildCloudUrl(lat, lon) {
+	return WEATHER_BASE_URL +
+		'?latitude=' + lat +
+		'&longitude=' + lon +
+		'&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high' +
+		'&models=icon_seamless' +
+		'&forecast_hours=' + FORECAST_HOURS +
+		'&timeformat=unixtime';
+}
+
+/**
+ * Align Open-Meteo hourly cloud data to Bright Sky records by timestamp
+ * (the two may start at different hours). All-or-nothing: if any record has
+ * no complete matching hour, return null so the caller uses the fallback.
+ *
+ * @param   {Object[]} hourly  Bright Sky records (ISO `timestamp`).
+ * @param   {?Object}  omHourly Open-Meteo `hourly` (unixtime `time` + cloud arrays).
+ * @returns {?{cloud_cover: number[], cloud_cover_low: number[], cloud_cover_mid: number[], cloud_cover_high: number[]}}
+ */
+function alignCloudLayers(hourly, omHourly) {
+	if (!omHourly || !Array.isArray(omHourly.time)) return null;
+	var keys = ['cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high'];
+	var indexByHour = {};
+	for (var t = 0; t < omHourly.time.length; t++) {
+		indexByHour[Math.floor(omHourly.time[t] * 1000 / HOUR_MS)] = t;
+	}
+
+	var out = {};
+	keys.forEach(function (k) { out[k] = []; });
+	for (var i = 0; i < hourly.length; i++) {
+		var hour = Math.floor(Date.parse(hourly[i].timestamp) / HOUR_MS);
+		var idx = indexByHour[hour];
+		if (idx === undefined) return null;
+		for (var j = 0; j < keys.length; j++) {
+			var arr = omHourly[keys[j]];
+			if (!Array.isArray(arr) || typeof arr[idx] !== 'number') return null;
+			out[keys[j]].push(arr[idx]);
+		}
+	}
+	return out;
+}
+
+/**
+ * Fetch Open-Meteo ICON hourly cloud data. Never errors: calls back once
+ * with the response's `hourly` object, or null on any failure.
+ *
+ * @param {number}   lat
+ * @param {number}   lon
+ * @param {Function} retryXhrFn
+ * @param {Function} callback   Called with (omHourly|null).
+ */
+function fetchCloudLayers(lat, lon, retryXhrFn, callback) {
+	retryXhrFn(buildCloudUrl(lat, lon), CLOUD_RETRY_ATTEMPTS,
+		WEATHER_RETRY_BASE_DELAY_MS, 'dwd cloud fetch',
+		function (err, responseText) {
+			if (err) {
+				callback(null);
+				return;
+			}
+			try {
+				callback(JSON.parse(responseText).hourly || null);
+			} catch (e) {
+				callback(null);
+			}
+		}, { retry: 'wx_retry' });
 }
 
 /**
@@ -339,10 +402,15 @@ function toDisplayTemp(celsius, tempUnit) {
  * @param   {'celsius'|'fahrenheit'} tempUnit
  * @param   {number}   lat
  * @param   {number}   lon
+ * @param   {?Object}  omHourly   Open-Meteo ICON hourly cloud data, or null (icon-based fallback).
  * @returns {Object}   Fields matching index.js's weather payload contract.
  */
-function buildPayloadFields(hourly, current, tempUnit, lat, lon) {
+function buildPayloadFields(hourly, current, tempUnit, lat, lon, omHourly) {
 	var count = Math.min(hourly.length, FORECAST_HOURS);
+	var clouds = null;
+	try {
+		clouds = alignCloudLayers(hourly.slice(0, count), omHourly);
+	} catch (e) { }
 	var precipProb = [];
 	var tempHourly = [];
 	var apparentHourly = [];
@@ -357,7 +425,8 @@ function buildPayloadFields(hourly, current, tempUnit, lat, lon) {
 		// Bright Sky has no apparent-temperature field; fall back to actual temp.
 		apparentHourly.push(tempDisplay);
 		precipProb.push(typeof h.precipitation_probability === 'number' ? h.precipitation_probability : 0);
-		cloudCover.push(iconToCloudCoverPct(h.icon, h.condition, h.cloud_cover));
+		cloudCover.push(clouds ? clouds.cloud_cover[i] :
+			iconToCloudCoverPct(h.icon, h.condition, h.cloud_cover));
 		hourlyCode.push(iconToWmoCode(h.icon, h.condition, h.cloud_cover));
 	}
 
@@ -383,6 +452,9 @@ function buildPayloadFields(hourly, current, tempUnit, lat, lon) {
 		temp_hourly: tempHourly,
 		apparent_temp_hourly: apparentHourly,
 		cloud_cover: cloudCover,
+		cloud_cover_low: clouds ? clouds.cloud_cover_low : [],
+		cloud_cover_mid: clouds ? clouds.cloud_cover_mid : [],
+		cloud_cover_high: clouds ? clouds.cloud_cover_high : [],
 		hourly_weather_code: hourlyCode,
 		fetch_time: Math.floor(Date.now() / 1000),
 	};
@@ -395,11 +467,24 @@ function buildPayloadFields(hourly, current, tempUnit, lat, lon) {
  * @param {number}   lat         Latitude in decimal degrees.
  * @param {number}   lon         Longitude in decimal degrees.
  * @param {'celsius'|'fahrenheit'} tempUnit
+ * @param {boolean}  layeredClouds  True: also query Open-Meteo for cloud layers; false: no Open-Meteo call.
  * @param {Function} retryXhrFn  index.js's retryXhr(url, maxAttempts, baseDelayMs, label, callback, events, validate).
  * @param {Function} callback    Called with (err) or (null, fields).
  */
-function fetchDwdWeather(lat, lon, tempUnit, retryXhrFn, callback) {
+function fetchDwdWeather(lat, lon, tempUnit, layeredClouds, retryXhrFn, callback) {
 	var forecastUrl = buildForecastUrl(lat, lon);
+
+	// Cloud layers (only when enabled) load in parallel; build() waits for both legs.
+	var cloudDone = !layeredClouds;
+	var omHourly = null;
+	var pendingBuild = null;
+	if (layeredClouds) {
+		fetchCloudLayers(lat, lon, retryXhrFn, function (hourlyClouds) {
+			cloudDone = true;
+			omHourly = hourlyClouds;
+			if (pendingBuild) pendingBuild();
+		});
+	}
 
 	retryXhrFn(forecastUrl, WEATHER_RETRY_ATTEMPTS, WEATHER_RETRY_BASE_DELAY_MS,
 		'dwd forecast fetch',
@@ -444,11 +529,15 @@ function fetchDwdWeather(lat, lon, tempUnit, retryXhrFn, callback) {
 						return;
 					}
 
-					try {
-						callback(null, buildPayloadFields(hourly, current, tempUnit, lat, lon));
-					} catch (e) {
-						callback('dwd payload build error: ' + e);
+					function build() {
+						try {
+							callback(null, buildPayloadFields(hourly, current, tempUnit, lat, lon, omHourly));
+						} catch (e) {
+							callback('dwd payload build error: ' + e);
+						}
 					}
+					if (cloudDone) build();
+					else pendingBuild = build;
 				}, { retry: 'wx_retry' });
 		}, { retry: 'wx_retry' });
 }
@@ -457,6 +546,8 @@ module.exports = {
 	fetchDwdWeather: fetchDwdWeather,
 	iconToWmoCode: iconToWmoCode,
 	iconToCloudCoverPct: iconToCloudCoverPct,
+	alignCloudLayers: alignCloudLayers,
+	buildPayloadFields: buildPayloadFields,
 	computeSunHours: computeSunHours,
 	localNoon: localNoon,
 };

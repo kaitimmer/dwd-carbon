@@ -17,7 +17,7 @@ There are several other weather-focused Pebble watchfaces that might look simila
 - The current location and timezone.
 - Current temperature, shown below the weather condition icon.
 - 24-hour temperature graph with secondary apparent temperature line, with the min/max for that 24-hour window shown to its left.
-- 24-hour precipitation probability graph with cloud cover.
+- 24-hour precipitation probability graph with cloud cover (optionally split into high, mid and low cloud rows).
 - Daylight indicator with sunrise and sunset times.
 - Moon phase on the midnight indicator.
 - Current weather condition icon.
@@ -30,14 +30,15 @@ There are several other weather-focused Pebble watchfaces that might look simila
 
 - Temperature unit: Auto (default), Celsius, or Fahrenheit
 - Weather source: DWD (default, Deutscher Wetterdienst via Bright Sky — best coverage in/around Germany) or Open-Meteo (worldwide coverage)
+- Layered clouds (high/mid/low): Off (default) or On. With the DWD source, layers are fetched from Open-Meteo's DWD ICON model (extra request, only when on); with Off, DWD uses a total-only cloud estimate and makes no Open-Meteo request
 - Date format: "Monday, 1/15" default, several other presets (please open an issue if your preferred date format isn't available)
 - Battery indicator: Icon (default), Percentage, or Off
 - Show Timezone: On (default) or Off
 - Show AM/PM / 24h Indicator: On (default) or Off
 
-| 24h indicator off | Timezone off | Battery critically low |
-| --- | --- | --- |
-| ![24h/AM-PM indicator disabled](./info/screenshots.settings-24h-off.emery.png) | ![Timezone indicator disabled](./info/screenshots.settings-timezone-off.emery.png) | ![Battery icon shown in red below 15%](./info/screenshots.settings-battery-low.emery.png) |
+| 24h indicator off | Timezone off | Battery critically low | Layered clouds on |
+| --- | --- | --- | --- |
+| ![24h/AM-PM indicator disabled](./info/screenshots.settings-24h-off.emery.png) | ![Timezone indicator disabled](./info/screenshots.settings-timezone-off.emery.png) | ![Battery icon shown in red below 15%](./info/screenshots.settings-battery-low.emery.png) | ![High, mid and low cloud rows](./info/screenshots.settings-layered-clouds.emery.png) |
 
 ---
 
@@ -150,7 +151,7 @@ See [AGENTS.md](./AGENTS.md#icons) for the icon editing/regeneration workflow.
 
 ## Attribution
 
-Weather data from [Open-Meteo.com](https://open-meteo.com/) or [Deutscher Wetterdienst](https://www.dwd.de) (via the [Bright Sky](https://brightsky.dev) API), depending on the configured weather source
+Weather data (and, for the DWD source with layered clouds on, cloud cover layers) from [Open-Meteo.com](https://open-meteo.com/) or [Deutscher Wetterdienst](https://www.dwd.de) (via the [Bright Sky](https://brightsky.dev) API), depending on the configured weather source
 
 Reverse geocoding from [BigDataCloud](https://www.bigdatacloud.com/free-api/free-reverse-geocode-to-city-api)
 

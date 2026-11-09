@@ -23,6 +23,8 @@
 
 // Storage key for persisting last-received weather across cold starts
 #define STORAGE_KEY_WEATHER 2
+// Low/mid/high cloud layers, persisted separately (see WeatherCloudLayers).
+#define STORAGE_KEY_CLOUD_LAYERS 3
 
 // GRAPH_LAYERS_H is the combined height of daylight+cloud+precip+event — also
 // used for the icon bar overlay and the temp layer so all three match. Must be
@@ -59,6 +61,7 @@ static TempLayer *s_temp_layer;
 static IconBarLayer *s_icon_bar_layer;
 
 static WeatherData s_weather;
+static WeatherCloudLayers s_cloud_layers;
 static uint32_t s_request_seq;
 static uint32_t s_last_sent_request_seq;
 static uint32_t s_last_answered_seq;
@@ -184,11 +187,17 @@ static void prv_push_weather_to_layers(struct tm *now) {
 	int8_t temp_view[WEATHER_HOURLY_COUNT];
 	int8_t appar_view[WEATHER_HOURLY_COUNT];
 	uint8_t cloud_view[WEATHER_HOURLY_COUNT];
+	uint8_t cloud_low_view[WEATHER_HOURLY_COUNT];
+	uint8_t cloud_mid_view[WEATHER_HOURLY_COUNT];
+	uint8_t cloud_high_view[WEATHER_HOURLY_COUNT];
 	uint8_t code_view[WEATHER_HOURLY_COUNT];
 	memset(precip_view, 0, sizeof(precip_view));
 	memset(temp_view, 0, sizeof(temp_view));
 	memset(appar_view, 0, sizeof(appar_view));
 	memset(cloud_view, 0, sizeof(cloud_view));
+	memset(cloud_low_view, 0, sizeof(cloud_low_view));
+	memset(cloud_mid_view, 0, sizeof(cloud_mid_view));
+	memset(cloud_high_view, 0, sizeof(cloud_high_view));
 	memset(code_view, 0, sizeof(code_view));
 
 	int copy_len = (int)hours_remaining;
@@ -199,6 +208,12 @@ static void prv_push_weather_to_layers(struct tm *now) {
 	memcpy(temp_view, &s_weather.temp_hourly[data_offset], copy_len);
 	memcpy(appar_view, &s_weather.apparent_temp_hourly[data_offset], copy_len);
 	memcpy(cloud_view, &s_weather.cloud_cover[data_offset], copy_len);
+	// Layer views stay zero (total-only view) unless layered clouds are on.
+	if (settings_get()->layered_clouds) {
+		memcpy(cloud_low_view, &s_cloud_layers.low[data_offset], copy_len);
+		memcpy(cloud_mid_view, &s_cloud_layers.mid[data_offset], copy_len);
+		memcpy(cloud_high_view, &s_cloud_layers.high[data_offset], copy_len);
+	}
 	memcpy(code_view, &s_weather.hourly_weather_code[data_offset], copy_len);
 
 	// When stale, use hourly forecast for current hour instead of scalar fields
@@ -213,7 +228,8 @@ static void prv_push_weather_to_layers(struct tm *now) {
 	               current_hour < s_weather.sunset_hour);
 	daylight_layer_set_data(s_daylight_layer, s_weather.sunrise_hour,
 	                        s_weather.sunset_hour, current_hour, false, false);
-	cloud_layer_set_data(s_cloud_layer, cloud_view, code_view, current_hour);
+	cloud_layer_set_data(s_cloud_layer, cloud_view, cloud_low_view,
+	                     cloud_mid_view, cloud_high_view, code_view, current_hour);
 	precip_layer_set_data(s_precip_layer, precip_view, code_view, current_hour);
 	event_layer_set_data(s_event_layer, code_view, hours_remaining);
 	icon_bar_layer_set_condition(s_icon_bar_layer,
@@ -308,6 +324,26 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
 		memcpy(s_weather.cloud_cover, t->value->data, WEATHER_HOURLY_COUNT);
 	}
 
+	// A new weather message replaces the layers; absent keys leave them zero
+	// (total-only view) rather than keeping layers from an older fetch.
+	if (got_weather)
+		memset(&s_cloud_layers, 0, sizeof(s_cloud_layers));
+
+	t = dict_find(iter, MESSAGE_KEY_WEATHER_CLOUD_COVER_LOW);
+	if (t && t->type == TUPLE_BYTE_ARRAY && t->length >= WEATHER_HOURLY_COUNT) {
+		memcpy(s_cloud_layers.low, t->value->data, WEATHER_HOURLY_COUNT);
+	}
+
+	t = dict_find(iter, MESSAGE_KEY_WEATHER_CLOUD_COVER_MID);
+	if (t && t->type == TUPLE_BYTE_ARRAY && t->length >= WEATHER_HOURLY_COUNT) {
+		memcpy(s_cloud_layers.mid, t->value->data, WEATHER_HOURLY_COUNT);
+	}
+
+	t = dict_find(iter, MESSAGE_KEY_WEATHER_CLOUD_COVER_HIGH);
+	if (t && t->type == TUPLE_BYTE_ARRAY && t->length >= WEATHER_HOURLY_COUNT) {
+		memcpy(s_cloud_layers.high, t->value->data, WEATHER_HOURLY_COUNT);
+	}
+
 	t = dict_find(iter, MESSAGE_KEY_WEATHER_HOURLY_CODE);
 	if (t && t->type == TUPLE_BYTE_ARRAY && t->length >= WEATHER_HOURLY_COUNT) {
 		memcpy(s_weather.hourly_weather_code, t->value->data,
@@ -324,8 +360,11 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
 	// Only update weather state if this message actually contained weather
 	// data. A settings-only message must not mark the weather as valid with
 	// zeroed arrays, which would render a false "clear sky" state.
-	if (!got_weather)
+	if (!got_weather) {
+		// Settings-only message: redraw so e.g. layered clouds apply now.
+		prv_push_weather_to_layers(now_stm);
 		goto done;
+	}
 
 	// Require a fetch timestamp — without it we cannot compute data_offset and
 	// would wrongly treat data of unknown age as current.
@@ -340,6 +379,8 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
 
 	// Persist for cold-start restoration
 	persist_write_data(STORAGE_KEY_WEATHER, &s_weather, sizeof(s_weather));
+	persist_write_data(STORAGE_KEY_CLOUD_LAYERS, &s_cloud_layers,
+	                   sizeof(s_cloud_layers));
 
 	// Push data to layers
 	time_t now_push = time(NULL);
@@ -480,8 +521,9 @@ static void init(void) {
 
 	// Restore persisted weather before anything renders
 	memset(&s_weather, 0, sizeof(s_weather));
+	memset(&s_cloud_layers, 0, sizeof(s_cloud_layers));
 #if defined(DEMO_SCENARIO)
-	demo_data_load(&s_weather, settings_get());
+	demo_data_load(&s_weather, &s_cloud_layers, settings_get());
 #else
 	if (persist_exists(STORAGE_KEY_WEATHER)) {
 		int stored_size = persist_get_size(STORAGE_KEY_WEATHER);
@@ -491,6 +533,14 @@ static void init(void) {
 		} else {
 			persist_delete(STORAGE_KEY_WEATHER);
 		}
+	}
+	// Absent or wrong-sized layers (e.g. upgrade from an older version) stay
+	// zero, which renders the total-only view until the next fetch.
+	if (persist_exists(STORAGE_KEY_CLOUD_LAYERS) &&
+	    persist_get_size(STORAGE_KEY_CLOUD_LAYERS) ==
+	        (int)sizeof(s_cloud_layers)) {
+		persist_read_data(STORAGE_KEY_CLOUD_LAYERS, &s_cloud_layers,
+		                  sizeof(s_cloud_layers));
 	}
 #endif
 
@@ -513,7 +563,7 @@ static void init(void) {
 	app_message_register_inbox_received(prv_inbox_received);
 	app_message_register_inbox_dropped(prv_inbox_dropped);
 	app_message_register_outbox_failed(prv_outbox_failed);
-	app_message_open(512, 64);
+	app_message_open(640, 64);
 #endif
 
 	// Trigger initial weather fetch

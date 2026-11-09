@@ -573,6 +573,9 @@ function writeCache(payload) {
  * @param {number[]} payload.temp_hourly           Hourly temperature values.
  * @param {number[]} payload.apparent_temp_hourly  Hourly apparent temperature values.
  * @param {number[]} payload.cloud_cover           Hourly cloud cover (0–100).
+ * @param {number[]} [payload.cloud_cover_low]     Hourly low/mid/high cloud cover (0–100); zeros when absent.
+ * @param {number[]} [payload.cloud_cover_mid]
+ * @param {number[]} [payload.cloud_cover_high]
  * @param {number[]} payload.hourly_weather_code   Hourly WMO weather codes.
  * @param {string}   payload.city_name             City label for the time layer.
  * @param {string}   payload.temp_unit             'celsius' or 'fahrenheit'.
@@ -591,12 +594,18 @@ function sendToWatch(payload) {
 	var tempHourly = (payload.temp_hourly || []).slice(0, hourlyCount);
 	var apparentHourly = (payload.apparent_temp_hourly || []).slice(0, hourlyCount);
 	var cloudCover = (payload.cloud_cover || []).slice(0, hourlyCount);
+	var cloudLow = (payload.cloud_cover_low || []).slice(0, hourlyCount);
+	var cloudMid = (payload.cloud_cover_mid || []).slice(0, hourlyCount);
+	var cloudHigh = (payload.cloud_cover_high || []).slice(0, hourlyCount);
 	var hourlyCode = (payload.hourly_weather_code || []).slice(0, hourlyCount);
 
 	while (precipProb.length < hourlyCount) precipProb.push(0);
 	while (tempHourly.length < hourlyCount) tempHourly.push(0);
 	while (apparentHourly.length < hourlyCount) apparentHourly.push(0);
 	while (cloudCover.length < hourlyCount) cloudCover.push(0);
+	while (cloudLow.length < hourlyCount) cloudLow.push(0);
+	while (cloudMid.length < hourlyCount) cloudMid.push(0);
+	while (cloudHigh.length < hourlyCount) cloudHigh.push(0);
 	while (hourlyCode.length < hourlyCount) hourlyCode.push(0);
 
 	// 0 = celsius, 1 = fahrenheit  (matches settings.c convention)
@@ -611,6 +620,9 @@ function sendToWatch(payload) {
 		'WEATHER_TEMP_HOURLY': packInt8Array(tempHourly, hourlyCount),
 		'WEATHER_APPARENT_TEMP_HOURLY': packInt8Array(apparentHourly, hourlyCount),
 		'WEATHER_CLOUD_COVER': packUint8Array(cloudCover, hourlyCount),
+		'WEATHER_CLOUD_COVER_LOW': packUint8Array(cloudLow, hourlyCount),
+		'WEATHER_CLOUD_COVER_MID': packUint8Array(cloudMid, hourlyCount),
+		'WEATHER_CLOUD_COVER_HIGH': packUint8Array(cloudHigh, hourlyCount),
 		'WEATHER_HOURLY_CODE': packUint8Array(hourlyCode, hourlyCount),
 		'CITY_NAME': cityName.substring(0, 23),
 		'SETTING_TEMP_UNIT': tempUnitFlag,
@@ -711,6 +723,9 @@ function fetchAndSend(lat, lon, isStaticLocation) {
 		payload.temp_hourly = fields.temp_hourly;
 		payload.apparent_temp_hourly = fields.apparent_temp_hourly;
 		payload.cloud_cover = fields.cloud_cover;
+		payload.cloud_cover_low = fields.cloud_cover_low;
+		payload.cloud_cover_mid = fields.cloud_cover_mid;
+		payload.cloud_cover_high = fields.cloud_cover_high;
 		payload.hourly_weather_code = fields.hourly_weather_code;
 		payload.fetch_time = fields.fetch_time;
 		weatherOk = true;
@@ -720,7 +735,9 @@ function fetchAndSend(lat, lon, isStaticLocation) {
 	}
 
 	if (getWeatherSource() === 1) {
-		dwdWeather.fetchDwdWeather(lat, lon, tempUnit, retryXhr, handleWeatherResult);
+		dwdWeather.fetchDwdWeather(lat, lon, tempUnit,
+			getBoolSetting(settings, 'SETTING_LAYERED_CLOUDS', false),
+			retryXhr, handleWeatherResult);
 	} else {
 		openMeteoWeather.fetchOpenMeteoWeather(lat, lon, tempUnit, retryXhr, handleWeatherResult);
 	}
@@ -998,6 +1015,9 @@ Pebble.addEventListener('webviewclosed', function (e) {
 	var showTimezone = extractBool(rawSettings['SETTING_SHOW_TIMEZONE']);
 	if (showTimezone !== null) dict['SETTING_SHOW_TIMEZONE'] = showTimezone;
 
+	var layeredClouds = extractBool(rawSettings['SETTING_LAYERED_CLOUDS']);
+	if (layeredClouds !== null) dict['SETTING_LAYERED_CLOUDS'] = layeredClouds;
+
 	var showAmpm = extractBool(rawSettings['SETTING_SHOW_AMPM']);
 	if (showAmpm !== null) dict['SETTING_SHOW_AMPM'] = showAmpm;
 
@@ -1038,10 +1058,17 @@ Pebble.addEventListener('webviewclosed', function (e) {
 	var weatherSourceChanged =
 		extractString(oldSettings['SETTING_WEATHER_SOURCE']) !==
 		extractString(newSettings['SETTING_WEATHER_SOURCE']);
+	var layeredCloudsChanged =
+		getBoolSetting(oldSettings, 'SETTING_LAYERED_CLOUDS', false) !==
+		getBoolSetting(newSettings, 'SETTING_LAYERED_CLOUDS', false);
 
 	if (geocodeEnabledChanged || locationOverrideChanged || useStaticChanged ||
-		staticLatChanged || staticLonChanged || weatherSourceChanged) {
+		staticLatChanged || staticLonChanged || weatherSourceChanged ||
+		layeredCloudsChanged) {
 		localStorage.removeItem(CACHE_KEY);
+		// Fetch-affecting change: bypass dedupe so the refresh below really refetches.
+		s_lastHandledAt = 0;
+		s_fetchStartedAt = 0;
 	}
 	if (staticLatChanged || staticLonChanged) {
 		localStorage.removeItem(GEONAME_CACHE_KEY);

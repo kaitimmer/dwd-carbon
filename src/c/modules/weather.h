@@ -52,6 +52,15 @@ typedef struct {
 	                     // (0-WEATHER_HOURLY_COUNT)
 } WeatherData;
 
+// Low/mid/high cloud cover (0-100). Kept apart from WeatherData: together
+// they would exceed PERSIST_DATA_MAX_LENGTH, and old persisted WeatherData
+// blobs stay loadable. All zeros means "no layer data" (total-only view).
+typedef struct {
+	uint8_t low[WEATHER_HOURLY_COUNT];
+	uint8_t mid[WEATHER_HOURLY_COUNT];
+	uint8_t high[WEATHER_HOURLY_COUNT];
+} WeatherCloudLayers;
+
 _Static_assert(sizeof(WeatherData) <= PERSIST_DATA_MAX_LENGTH,
                "WeatherData exceeds PERSIST_DATA_MAX_LENGTH");
 

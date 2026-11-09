@@ -29,12 +29,19 @@ module.exports = [
 				'type': 'select',
 				'messageKey': 'SETTING_WEATHER_SOURCE',
 				'label': 'Weather Source',
-				'description': 'DWD (via Bright Sky) uses German weather service data — best coverage in and around Germany. Open-Meteo works worldwide.',
+				'description': 'DWD (via Bright Sky) uses German weather service data — best coverage in and around Germany. Open-Meteo works worldwide. With DWD, layered clouds (below) are fetched from Open-Meteo.',
 				'defaultValue': 1,
 				'options': [
 					{ 'label': 'Open-Meteo', 'value': 0 },
 					{ 'label': 'DWD (Deutscher Wetterdienst)', 'value': 1 },
 				],
+			},
+			{
+				'type': 'toggle',
+				'messageKey': 'SETTING_LAYERED_CLOUDS',
+				'label': 'Layered Clouds (high/mid/low)',
+				'description': 'Show high, mid and low cloud cover as separate rows. With the DWD source, this data is fetched from Open-Meteo (DWD ICON model); when off, DWD makes no Open-Meteo request.',
+				'defaultValue': false,
 			},
 			{
 				'type': 'select',

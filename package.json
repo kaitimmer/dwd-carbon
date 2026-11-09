@@ -39,6 +39,9 @@
       "WEATHER_TEMP_HOURLY",
       "WEATHER_APPARENT_TEMP_HOURLY",
       "WEATHER_CLOUD_COVER",
+      "WEATHER_CLOUD_COVER_LOW",
+      "WEATHER_CLOUD_COVER_MID",
+      "WEATHER_CLOUD_COVER_HIGH",
       "WEATHER_HOURLY_CODE",
       "WEATHER_SUNRISE_HOUR",
       "WEATHER_SUNSET_HOUR",
@@ -47,6 +50,7 @@
       "SETTING_WEATHER_SOURCE",
       "SETTING_TEMP_UNIT",
       "SETTING_FETCH_INTERVAL",
+      "SETTING_LAYERED_CLOUDS",
       "SETTING_ACCENT_COLOR",
       "SETTING_DATE_FORMAT",
       "SETTING_BATTERY_DISPLAY",
@@ -89,7 +93,8 @@
     }
   },
   "scripts": {
-    "gen-icons": "node scripts/gen-icons.js"
+    "gen-icons": "node scripts/gen-icons.js",
+    "test": "node scripts/test-dwd-clouds.js"
   },
   "dependencies": {
     "@rebble/clay": "^1.0.10"
